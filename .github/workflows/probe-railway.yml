@@ -1,0 +1,167 @@
+name: Probe Railway
+
+# Read-only probe of the operator's Railway account state.
+# Per ADR-0008: classifies the account into state A / B / C so a later
+# provisioner workflow knows which mutations (if any) to run.
+#
+# This workflow makes ZERO mutations — it only runs the GraphQL `me` query
+# and writes the classification + raw projects JSON to GITHUB_STEP_SUMMARY.
+#
+# Auth: secrets.RAILWAY_API_TOKEN must be an account token (not project /
+# workspace). Per docs.railway.com/integrations/api/graphql-overview, only
+# account tokens can resolve `me`.
+
+on:
+  workflow_dispatch:
+  # First-time bootstrap + re-probe-on-edit: GitHub's workflow_dispatch REST
+  # API only resolves workflows registered on the default branch, so the
+  # path-scoped pull_request trigger lets the probe self-register on the PR
+  # that introduces it, and re-runs whenever its YAML changes.
+  pull_request:
+    paths:
+      - '.github/workflows/probe-railway.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Classify Railway account state
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe via GraphQL
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          # Names the agent looks for inside each project.
+          # Kept out of the script so they're easy to retune without code edits.
+          AGENT_SERVICE_NAME: agent
+          N8N_SERVICE_NAME: n8n
+          DEFAULT_PROJECT_NAME: autonomous-agent
+        run: |
+          python3 <<'PYEOF'
+          import json, os, sys, urllib.request, urllib.error
+
+          token = os.environ["RAILWAY_API_TOKEN"]
+          n8n_name   = os.environ["N8N_SERVICE_NAME"]
+          agent_name = os.environ["AGENT_SERVICE_NAME"]
+          default_project_name = os.environ["DEFAULT_PROJECT_NAME"]
+          summary_path = os.environ["GITHUB_STEP_SUMMARY"]
+
+          # GitHub caps step summary at ~1 MiB and annotation messages
+          # at ~64 KiB; these slices stay well below both ceilings.
+          STEP_SUMMARY_ERROR_CHARS   = 3000
+          STEP_SUMMARY_PAYLOAD_CHARS = 8000
+          ANNOTATION_CHARS           = 2000
+
+          query = """
+          query Probe {
+            me {
+              id
+              name
+              email
+              projects {
+                edges {
+                  node {
+                    id
+                    name
+                    services { edges { node { id name } } }
+                    environments { edges { node { id name } } }
+                  }
+                }
+              }
+            }
+          }
+          """
+
+          # Cloudflare on backboard.railway.app rejects the default
+          # `Python-urllib/3.x` User-Agent with error code 1010 (Browser
+          # Integrity Check). A non-bot UA + Accept header passes.
+          req = urllib.request.Request(
+            "https://backboard.railway.app/graphql/v2",
+            data=json.dumps({"query": query}).encode(),
+            headers={
+              "Authorization": f"Bearer {token}",
+              "Content-Type":  "application/json",
+              "Accept":        "application/json",
+              "User-Agent":    "autonomous-agent-template-builder/1.0 (+probe-railway.yml)",
+            },
+            method="POST",
+          )
+
+          try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+              body = json.loads(resp.read())
+          except urllib.error.HTTPError as e:
+            body = {"_http_error": e.code, "_body": e.read().decode("utf-8", "replace")}
+          except Exception as e:
+            body = {"_transport_error": repr(e)}
+
+          # Write a structured summary regardless of outcome — the goal is
+          # diagnosability, not pretty-printing only on the happy path.
+          def w(line=""):
+            with open(summary_path, "a") as f:
+              f.write(line + "\n")
+
+          w("# Railway probe — ADR-0008")
+          w()
+
+          if "errors" in body or "_http_error" in body or "_transport_error" in body:
+            w("## ❌ Probe failed")
+            w()
+            w("```json")
+            w(json.dumps(body, indent=2)[:STEP_SUMMARY_ERROR_CHARS])
+            w("```")
+            w()
+            w("Likely causes: token is project/workspace-scoped (not account), "
+              "endpoint moved, or rate-limited. See ADR-0008 → Risks.")
+            # Also emit as a workflow annotation so the failure body is
+            # readable via the check-runs API (the step-summary file lives
+            # behind the Azure log blob, which is not always accessible).
+            err = json.dumps(body)[:ANNOTATION_CHARS].replace("\n", " ").replace("%", "%25")
+            print(f"::error title=Railway probe failed::{err}")
+            sys.exit(1)
+
+          me = body.get("data", {}).get("me") or {}
+          projects = [p["node"] for p in (me.get("projects", {}).get("edges") or [])]
+
+          # Classification per ADR-0008.
+          state = "C"
+          adopted_project = None
+          for p in projects:
+            svc_names = {s["node"]["name"] for s in (p.get("services", {}).get("edges") or [])}
+            if n8n_name in svc_names and agent_name in svc_names:
+              state = "A"
+              adopted_project = p
+              break
+
+          if state == "C" and projects:
+            # State B: a project exists but is missing one or both target services.
+            # Prefer the one whose name matches DEFAULT_PROJECT_NAME, else the first.
+            named = next((p for p in projects if p["name"] == default_project_name), None)
+            adopted_project = named or projects[0]
+            state = "B"
+
+          w(f"## Result: state={state}")
+          w()
+          w(f"- Authenticated as: `{me.get('email','?')}` (id `{me.get('id','?')}`)")
+          w(f"- Total projects in account: **{len(projects)}**")
+          if adopted_project:
+            envs = [e["node"]["name"] for e in (adopted_project.get("environments",{}).get("edges") or [])]
+            svcs = [s["node"]["name"] for s in (adopted_project.get("services",{}).get("edges") or [])]
+            w(f"- Candidate project: `{adopted_project['name']}` (id `{adopted_project['id']}`)")
+            w(f"  - Environments: `{', '.join(envs) or '(none)'}`")
+            w(f"  - Services: `{', '.join(svcs) or '(none)'}`")
+          w()
+          w("Per ADR-0008 → State classification table:")
+          w("- **A** → adopt existing IDs (no mutations)")
+          w("- **B** → partial-provision the missing service(s) in the candidate project")
+          w("- **C** → full-provision (projectCreate + 2× serviceCreate + serviceConnect)")
+          w()
+          w("## Raw projects payload")
+          w()
+          w("```json")
+          w(json.dumps(projects, indent=2)[:STEP_SUMMARY_PAYLOAD_CHARS])
+          w("```")
+
+          print(f"::notice::Railway probe state={state} projects={len(projects)}")
+          PYEOF

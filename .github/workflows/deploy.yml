@@ -1,0 +1,151 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - 'railway.toml'
+
+permissions:
+  contents: read
+  id-token: write   # Required for WIF/OIDC authentication to GCP
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm run test
+
+  deploy-railway:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: [test]
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via WIF
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        run: railway up --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+      - name: Verify deployment health
+        run: |
+          sleep 10
+          railway status
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+  deploy-cloudflare:
+    name: Deploy to Cloudflare Workers
+    runs-on: ubuntu-latest
+    needs: [test]
+    environment: production
+    if: contains(github.event.head_commit.modified, 'src/worker/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via WIF
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Retrieve Cloudflare token from GCP Secret Manager
+        id: cf-token
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            cloudflare-api-token:${{ vars.GCP_PROJECT_ID }}/cloudflare-api-token
+          # R-01: OIDC for Cloudflare Workers CI not natively supported.
+          # Using API token retrieved from GCP Secret Manager.
+          # Token never appears in logs or environment directly.
+
+      - name: Render wrangler.toml clone_slug placeholder (ADR-0011 §2)
+        env:
+          CLONE_SLUG: ${{ github.event.repository.name }}
+        run: |
+          # `envsubst '${CLONE_SLUG}'` substitutes ONLY $CLONE_SLUG and leaves
+          # any other shell-style placeholders untouched — keeps the rendering
+          # idempotent and side-effect-free if more vars get added later.
+          envsubst '${CLONE_SLUG}' < wrangler.toml > wrangler.toml.rendered
+          mv wrangler.toml.rendered wrangler.toml
+          echo "Rendered Worker name:"
+          grep '^name' wrangler.toml
+
+      - name: Deploy Workers via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ steps.cf-token.outputs.cloudflare-api-token }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+
+  notify:
+    name: Notify operator
+    runs-on: ubuntu-latest
+    needs: [deploy-railway, deploy-cloudflare]
+    if: always()
+
+    steps:
+      - name: Authenticate to GCP via WIF
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Retrieve Telegram token from GCP Secret Manager
+        id: tg-token
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            telegram-bot-token:${{ vars.GCP_PROJECT_ID }}/telegram-bot-token
+
+      - name: Send Telegram notification
+        run: |
+          STATUS="${{ needs.deploy-railway.result == 'success' && needs.deploy-cloudflare.result != 'failure' && 'SUCCESS' || 'FAILURE' }}"
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          MESSAGE="Deployment ${STATUS}: ${SHORT_SHA} on ${{ github.repository }} by ${{ github.actor }}"
+
+          curl -sS -X POST \
+            "https://api.telegram.org/bot${{ steps.tg-token.outputs.telegram-bot-token }}/sendMessage" \
+            -d "chat_id=${{ vars.TELEGRAM_CHAT_ID }}" \
+            -d "text=${MESSAGE}" \
+            -d "parse_mode=HTML"
+        # Token is retrieved from Secret Manager at runtime — never logged or stored in CI env directly

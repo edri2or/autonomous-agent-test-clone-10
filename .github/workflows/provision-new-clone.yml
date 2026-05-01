@@ -1,0 +1,117 @@
+name: Provision new clone (ADR-0012)
+
+# ADR-0012 (ADR-0011 Phase E): GitHub-driven clone provisioning.
+#
+# Lifts the trigger surface for per-clone bootstrap from GCP Cloud Shell
+# (the original ADR-0011 §1 / Phase C path, validated live in Q-Path on
+# 2026-05-01) to a workflow_dispatch on this template-builder repo.
+#
+# Per-clone operator actions after Phase E lands: ZERO.
+# Per-clone Claude Code actions: dispatch this workflow with inputs.
+#
+# Required one-time-global operator pre-grants (§E.1) — performed once
+# for the entire org's clone lifecycle, NOT per clone:
+#   1. roles/resourcemanager.projectCreator + roles/resourcemanager.organizationViewer
+#      on org → github-actions-runner@or-infra-templet-admin
+#   2. roles/billing.user on billing account → same SA
+#   3. PAT (repo+workflow+admin:org) stored as `gh-admin-token` in
+#      or-infra-templet-admin GCP Secret Manager
+#   4. is_template=true on the source template repo (already done in Q-Path)
+#
+# Security: the existing WIF provider's attributeCondition restricts SA
+# impersonation to assertion.repository == 'edri2or/autonomous-agent-template-builder'.
+# Org-level role expansion blast radius is bounded to compromise of this
+# specific repo's CI. Every project creation appears in this repo's
+# workflow run history (audit trail).
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_repo_name:
+        description: 'New repo name (e.g. autonomous-agent-foo)'
+        required: true
+      new_project_id:
+        description: 'New GCP project ID (must be globally unique, ≤30 chars)'
+        required: true
+      parent_folder_id:
+        description: 'GCP folder ID where the new project will be created'
+        required: true
+        default: '667201164106'
+      billing_account_id:
+        description: 'GCP billing account to link'
+        required: true
+        default: '014D0F-AC8E0F-5A7EE7'
+      github_owner:
+        description: 'GitHub org/user that will own the new repo'
+        required: true
+        default: 'edri2or'
+
+permissions:
+  contents: read
+  id-token: write   # WIF token exchange
+
+jobs:
+  provision:
+    name: Provision new clone
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout template-builder
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account:            ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Retrieve gh-admin-token from GCP Secret Manager
+        id: ghpat
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            gh-admin-token:${{ vars.GCP_PROJECT_ID }}/gh-admin-token
+
+      - name: Create new GitHub repo from template
+        env:
+          GH_TOKEN: ${{ steps.ghpat.outputs.gh-admin-token }}
+        run: |
+          # The source template lives at github.repository (this workflow's
+          # own repo, i.e. autonomous-agent-template-builder). The new repo
+          # owner is operator-supplied via inputs.github_owner.
+          gh api -X POST "repos/${{ github.repository }}/generate" \
+            -f name="${{ inputs.new_repo_name }}" \
+            -f owner="${{ inputs.github_owner }}" \
+            -F private=false \
+            -f description="Auto-provisioned by ADR-0012 from autonomous-agent-template-builder"
+
+      - name: Run grant-autonomy.sh against the new project (CI-WIF mode)
+        env:
+          CI: 'true'
+          GH_TOKEN: ${{ steps.ghpat.outputs.gh-admin-token }}
+          GITHUB_REPO: ${{ inputs.github_owner }}/${{ inputs.new_repo_name }}
+          GCP_PROJECT_ID: ${{ inputs.new_project_id }}
+          GCP_PARENT_FOLDER: ${{ inputs.parent_folder_id }}
+          GCP_BILLING_ACCOUNT: ${{ inputs.billing_account_id }}
+          # Source secrets from this template-builder's GCP project, sync
+          # into the new repo's GitHub Secrets (per grant-autonomy.sh §E.2
+          # SECRETS_SOURCE_PROJECT decoupling).
+          SECRETS_SOURCE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: bash tools/grant-autonomy.sh
+
+      - name: Summary
+        run: |
+          {
+            echo "## Clone provisioned"
+            echo
+            echo "- New repo: \`${{ inputs.github_owner }}/${{ inputs.new_repo_name }}\`"
+            echo "- New GCP project: \`${{ inputs.new_project_id }}\`"
+            echo "- Parent folder: \`${{ inputs.parent_folder_id }}\`"
+            echo "- Billing account: \`${{ inputs.billing_account_id }}\`"
+            echo
+            echo "## Next: Path D activation"
+            echo
+            echo "Provisioning is complete. Activation (R-04 Telegram, R-07 GitHub App, R-10 Linear) is NOT — see \`docs/runbooks/bootstrap.md\` Path D for the 5-step sequence and success criteria."
+          } >> "$GITHUB_STEP_SUMMARY"

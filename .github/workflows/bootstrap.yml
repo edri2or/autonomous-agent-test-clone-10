@@ -235,7 +235,10 @@ jobs:
 
       - name: Terraform plan
         id: plan
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          set +e
           terraform -chdir=terraform plan \
             -var="gcp_project_id=${{ vars.GCP_PROJECT_ID }}" \
             -var="gcp_region=${{ vars.GCP_REGION || 'us-central1' }}" \
@@ -246,6 +249,17 @@ jobs:
             -var="clone_slug=${{ github.event.repository.name }}" \
             -no-color \
             -out=tfplan 2>&1 | tee /tmp/plan_output.txt
+          EC=${PIPESTATUS[0]}
+          if [ "$EC" -ne 0 ]; then
+            echo "::group::terraform plan failure annotations"
+            tail -120 /tmp/plan_output.txt | while IFS= read -r line; do
+              clean="${line//$'\r'/}"
+              [ -z "$clean" ] && continue
+              echo "::error file=terraform/gcp.tf::${clean}"
+            done
+            echo "::endgroup::"
+            exit "$EC"
+          fi
 
       - name: Terraform apply
         if: inputs.dry_run == 'false'

@@ -233,6 +233,23 @@ jobs:
             -backend-config="prefix=terraform/state" \
             -input=false
 
+      - name: Pre-import existing secrets
+        run: |
+          set -euo pipefail
+          TF_SECRETS=$(awk '/variable "secret_names"/,/^}/' terraform/variables.tf \
+            | grep -oE '"[a-z][a-z0-9-]*"' | tr -d '"' | sort -u)
+          GCP_SECRETS=$(gcloud secrets list \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --format='value(name.basename())' 2>/dev/null | sort -u || echo '')
+          for name in $TF_SECRETS; do
+            if echo "${GCP_SECRETS}" | grep -qx "${name}"; then
+              echo "Importing pre-existing secret: ${name}"
+              terraform -chdir=terraform import \
+                "google_secret_manager_secret.secrets[\"${name}\"]" \
+                "projects/${{ vars.GCP_PROJECT_ID }}/secrets/${name}" || true
+            fi
+          done
+
       - name: Terraform plan
         id: plan
         env:

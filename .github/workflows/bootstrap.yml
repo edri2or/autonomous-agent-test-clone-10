@@ -234,6 +234,15 @@ jobs:
             -input=false
 
       - name: Pre-import existing secrets
+        env:
+          TF_VAR_gcp_project_id: ${{ vars.GCP_PROJECT_ID }}
+          TF_VAR_gcp_region: ${{ vars.GCP_REGION || 'us-central1' }}
+          TF_VAR_github_repo: ${{ github.repository }}
+          TF_VAR_github_org: ${{ github.repository_owner }}
+          TF_VAR_terraform_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+          TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID || '' }}
+          TF_VAR_clone_slug: ${{ github.event.repository.name }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
           TF_SECRETS=$(awk '/variable "secret_names"/,/^}/' terraform/variables.tf \
@@ -244,7 +253,7 @@ jobs:
           for name in $TF_SECRETS; do
             if echo "${GCP_SECRETS}" | grep -qx "${name}"; then
               echo "Importing pre-existing secret: ${name}"
-              terraform -chdir=terraform import \
+              terraform -chdir=terraform import -input=false \
                 "google_secret_manager_secret.secrets[\"${name}\"]" \
                 "projects/${{ vars.GCP_PROJECT_ID }}/secrets/${name}" || true
             fi

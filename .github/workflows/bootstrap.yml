@@ -270,13 +270,29 @@ jobs:
           terraform -chdir=terraform apply -auto-approve tfplan 2>&1 | tee /tmp/apply_output.txt
           EC=${PIPESTATUS[0]}
           if [ "$EC" -ne 0 ]; then
-            echo "::group::terraform apply failure annotations"
-            tail -80 /tmp/apply_output.txt | while IFS= read -r line; do
-              # Strip newlines for annotation safety, emit each line
-              clean="${line//$'\r'/}"
-              [ -z "$clean" ] && continue
-              echo "::error file=terraform/gcp.tf::${clean}"
-            done
+            # GitHub limits to ~10 ::error:: annotations per step. Emit only
+            # the actual error block by extracting from the first "Error:" or
+            # "│ Error:" marker (terraform format) to end-of-output. Also
+            # write full output to step summary for non-truncated visibility.
+            {
+              echo "## terraform apply failure (full output)"
+              echo ""
+              echo '```'
+              cat /tmp/apply_output.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::group::terraform apply error block"
+            python3 - <<'PY'
+import re, sys
+text = open('/tmp/apply_output.txt').read()
+text = re.sub(r'\x1b\[[0-9;]*m', '', text)
+m = re.search(r'(\bError:.*?)(?=^\s*$|\Z)', text, re.DOTALL | re.MULTILINE)
+block = m.group(1) if m else text[-2000:]
+lines = [l.strip() for l in block.splitlines() if l.strip()][:8]
+for line in lines:
+    safe = line.replace('%', '%25').replace('\r','').replace('\n','')[:400]
+    print(f"::error file=terraform/gcp.tf::{safe}")
+PY
             echo "::endgroup::"
             exit "$EC"
           fi

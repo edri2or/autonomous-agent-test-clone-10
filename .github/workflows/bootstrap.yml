@@ -258,6 +258,11 @@ jobs:
                 "projects/${{ vars.GCP_PROJECT_ID }}/secrets/${name}" || true
             fi
           done
+          if gcloud storage buckets describe "gs://${{ vars.TF_STATE_BUCKET }}" --project="${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; then
+            echo "Importing pre-existing bucket: ${{ vars.TF_STATE_BUCKET }}"
+            terraform -chdir=terraform import -input=false \
+              google_storage_bucket.tf_state "${{ vars.TF_STATE_BUCKET }}" || true
+          fi
 
       - name: Terraform plan
         id: plan

@@ -249,7 +249,23 @@ jobs:
 
       - name: Terraform apply
         if: inputs.dry_run == 'false'
-        run: terraform -chdir=terraform apply -auto-approve tfplan
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set +e
+          terraform -chdir=terraform apply -auto-approve tfplan 2>&1 | tee /tmp/apply_output.txt
+          EC=${PIPESTATUS[0]}
+          if [ "$EC" -ne 0 ]; then
+            echo "::group::terraform apply failure annotations"
+            tail -80 /tmp/apply_output.txt | while IFS= read -r line; do
+              # Strip newlines for annotation safety, emit each line
+              clean="${line//$'\r'/}"
+              [ -z "$clean" ] && continue
+              echo "::error file=terraform/gcp.tf::${clean}"
+            done
+            echo "::endgroup::"
+            exit "$EC"
+          fi
 
       - name: Output WIF provider name
         if: inputs.dry_run == 'false'

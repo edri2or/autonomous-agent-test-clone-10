@@ -2,6 +2,38 @@
 
 This file is **append-only**. Every Claude Code session must add an entry before making any edits. Entries are immutable once written. This log provides non-repudiation for all agent actions.
 
+## 2026-05-02 — Sync dead-code removal from template-builder PR #50
+
+**Agent:** Claude Code (claude-opus-4-7), session `claude/resume-pr46-clone10-9Y10M`
+**Trigger:** Sync of [template-builder PR #50](https://github.com/edri2or/autonomous-agent-template-builder/pull/50). Removes the two always-empty `inject_secret` lines for `github-app-id` (`vars.GITHUB_APP_ID`) and `github-app-private-key` (`secrets.GITHUB_APP_PRIVATE_KEY`) from Phase 1, plus the corresponding header-comment entries and dry-run echoes.
+
+**Empirical proof (from PR #50 work):**
+
+GitHub forbids both Variables and Secrets named with the `GITHUB_*` prefix:
+
+```text
+PUT /actions/variables/GITHUB_*  → HTTP 422 "Variable names must not start with GITHUB_."
+PUT /actions/secrets/GITHUB_*    → HTTP 422 "Secret names must not start with GITHUB_."
+```
+
+So the two expressions always evaluated to empty string, `inject_secret` skip-on-empty no-op'd, and the lines did nothing. The Cloud Run receiver writes the three `github-app-*` secrets directly via Secret Manager API in Phase 4 (`src/bootstrap-receiver/main.py:268-273`). Phase ordering (`needs: [generate-and-inject-secrets]`) ensured the dead Phase-1 inject ran first and skipped, then Phase 4 wrote the real values — coincidentally correct, structurally misleading.
+
+**Why a separate sync to this repo:** `bootstrap.yml`'s receiver-image build comes from this repo's source (same reasoning as PRs #1, #2 — manifest fix + `APP_INSTALLATION_ID` rename).
+
+**Fix scope (all in `.github/workflows/bootstrap.yml`):**
+
+- Header `# GitHub SECRETS`: remove `GITHUB_APP_PRIVATE_KEY` row.
+- Header `# GitHub VARIABLES`: remove `GITHUB_APP_ID` row.
+- Phase 1 inject block: remove the two dead `inject_secret` lines, replace with 3-line guard comment pointing at Phase 4.
+- Phase 1 skip-on-empty comment: update example from `github-app-*` to `vars.APP_INSTALLATION_ID` (the only remaining empty-on-first-run secret).
+- Phase 1 dry-run echo: remove the two stale lines, add 1 clarifying line.
+
+Net diff: −2 inject lines, −2 dry-run echoes, −2 header entries, +explanatory comments (consolidated per /simplify pass on the upstream PR).
+
+**Behavior unchanged at runtime** — receiver still writes; the inject lines were always no-ops.
+
+---
+
 ## 2026-05-02 — Sync `APP_INSTALLATION_ID` rename from template-builder PR #49
 
 **Agent:** Claude Code (claude-opus-4-7), session `claude/resume-pr46-clone10-9Y10M`

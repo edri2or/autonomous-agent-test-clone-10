@@ -17,33 +17,51 @@ jobs:
         with:
           secrets: |-
             project_id:${{ vars.GCP_PROJECT_ID }}/railway-project-id
-      - name: Query Railway project
+            env_id:${{ vars.GCP_PROJECT_ID }}/railway-environment-id
+            agent_svc_id:${{ vars.GCP_PROJECT_ID }}/railway-agent-service-id
+            n8n_svc_id:${{ vars.GCP_PROJECT_ID }}/railway-n8n-service-id
+      - name: Create + read service domains
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          PID: ${{ steps.ids.outputs.project_id }}
+          EID: ${{ steps.ids.outputs.env_id }}
+          AGENT: ${{ steps.ids.outputs.agent_svc_id }}
+          N8N: ${{ steps.ids.outputs.n8n_svc_id }}
         run: |
           set +e
-          Q='query Q($id: String!) { project(id: $id) { name services { edges { node { id name serviceInstances { edges { node { domains { serviceDomains { domain } customDomains { domain } } } } } } } } } }'
-          PAYLOAD=$(jq -n --arg q "$Q" --arg id "$PID" '{query:$q, variables:{id:$id}}')
+          create_domain() {
+            local SVC=$1 LABEL=$2
+            local Q='mutation Cre($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }'
+            local PAYLOAD
+            PAYLOAD=$(jq -n --arg q "$Q" --arg svc "$SVC" --arg env "$EID" \
+              '{query:$q, variables:{input:{serviceId:$svc, environmentId:$env}}}')
+            local RESP
+            RESP=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -H "User-Agent: probe/2.0" \
+              -d "$PAYLOAD")
+            echo "::group::$LABEL serviceDomainCreate raw"
+            echo "$RESP" | jq . 2>&1 || echo "$RESP"
+            echo "::endgroup::"
+            DOMAIN=$(echo "$RESP" | jq -r '.data.serviceDomainCreate.domain // empty' 2>/dev/null)
+            if [ -n "$DOMAIN" ]; then
+              echo "::notice::$LABEL domain=https://$DOMAIN"
+            else
+              ERR=$(echo "$RESP" | jq -r '.errors[0].message // empty' 2>/dev/null)
+              [ -n "$ERR" ] && echo "::warning::$LABEL serviceDomainCreate error: $ERR"
+            fi
+          }
+          create_domain "$AGENT" agent
+          create_domain "$N8N" n8n
+          # Re-query to list current domains
+          Q='query Q($id: String!) { service(id: $id) { name serviceInstances { edges { node { domains { serviceDomains { domain } } } } } } }'
+          PAYLOAD=$(jq -n --arg q "$Q" --arg id "$AGENT" '{query:$q, variables:{id:$id}}')
           RESP=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
             -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -H "User-Agent: probe/1.0" \
             -d "$PAYLOAD")
-          echo "$RESP" > /tmp/resp.json
-          # Extract just the domain strings, emit one annotation per domain
-          jq -r '
-            .data.project as $p
-            | "::notice::project=\($p.name)",
-              ($p.services.edges[] | .node as $svc
-                | $svc.serviceInstances.edges[] | .node as $si
-                | "::notice::service=\($svc.name) id=\($svc.id)",
-                  ($si.domains.serviceDomains[]? | "::notice::  serviceDomain=https://\(.domain)"),
-                  ($si.domains.customDomains[]?  | "::notice::  customDomain=https://\(.domain)")
-              )
-          ' /tmp/resp.json 2>&1
-          # If jq failed, dump raw
-          if [ ! -s /tmp/resp.json ] || ! jq -e '.data' /tmp/resp.json >/dev/null 2>&1; then
-            echo "::error::Railway response invalid"
-            head -c 800 /tmp/resp.json | tr -d '\n' | head -c 500 | sed 's/^/::error::/'
-          fi
+          echo "::group::agent service domains after create"
+          echo "$RESP" | jq .
+          echo "::endgroup::"
+          AGENT_DOM=$(echo "$RESP" | jq -r '.data.service.serviceInstances.edges[].node.domains.serviceDomains[]?.domain' | head -1)
+          [ -n "$AGENT_DOM" ] && echo "::notice::FINAL agent domain=https://$AGENT_DOM"

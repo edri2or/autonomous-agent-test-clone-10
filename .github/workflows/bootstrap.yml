@@ -660,6 +660,7 @@ jobs:
             --region="${GCP_REGION}" \
             --project="${GCP_PROJECT_ID}" \
             --allow-unauthenticated \
+            --service-account="${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" \
             --set-env-vars="GCP_PROJECT_ID=${GCP_PROJECT_ID},GITHUB_ORG=${{ github.repository_owner }},APP_NAME=${{ vars.APP_NAME }},WEBHOOK_URL=${{ vars.WEBHOOK_URL }}" \
             --quiet 2>&1 | tee /tmp/run_deploy.log
           EC=${PIPESTATUS[0]}

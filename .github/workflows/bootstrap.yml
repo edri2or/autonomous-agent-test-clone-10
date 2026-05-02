@@ -18,9 +18,7 @@ name: Bootstrap
 #   GCP_SERVICE_ACCOUNT_EMAIL
 #   GCP_REGION                  (default: us-central1)
 #   GITHUB_APP_ID
-#   APP_INSTALLATION_ID         (NOT GITHUB_APP_INSTALLATION_ID — GitHub
-#                               Variables forbid the GITHUB_* prefix, HTTP 422
-#                               "Variable names must not start with GITHUB_.")
+#   APP_INSTALLATION_ID         (note: name cannot start with GITHUB_ — see CLAUDE.md)
 #   CLOUDFLARE_ACCOUNT_ID
 #   CLOUDFLARE_ZONE_ID
 #   RAILWAY_PROJECT_ID
@@ -813,4 +811,4 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Remaining human-only steps (if not done)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Telegram @BotFather /newbot (impossible to automate)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Set APP_INSTALLATION_ID variable after installing the app (the name cannot start with GITHUB_ per GH policy)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Set APP_INSTALLATION_ID variable after installing the app" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,23 @@
+name: Probe agent /health
+on: workflow_dispatch
+permissions: { contents: read }
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll agent /health
+        run: |
+          set +e
+          URL="https://agent-production-7d77.up.railway.app/health"
+          for i in 1 2 3 4 5 6; do
+            RESP=$(curl -sS -m 10 -w "\nHTTP=%{http_code}" "$URL" 2>&1)
+            HTTP=$(echo "$RESP" | grep -oE 'HTTP=[0-9]+' | tail -1 | cut -d= -f2)
+            BODY=$(echo "$RESP" | sed '$d' | head -c 400)
+            echo "Try $i: HTTP=$HTTP body=${BODY}"
+            if [ "$HTTP" = "200" ]; then
+              echo "::notice::Agent /health UP — HTTP 200, body: ${BODY}"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::warning::Agent /health did not respond 200 in 6 tries (~120s) — last HTTP=$HTTP body=${BODY}"

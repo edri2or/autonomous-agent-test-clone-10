@@ -12,13 +12,11 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account:            ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Probe current orgpolicy state
+      - name: Enable OrgPolicy API
         run: |
-          set +e
-          gcloud org-policies describe constraints/iam.allowedPolicyMemberDomains \
-            --project="${{ vars.GCP_PROJECT_ID }}" 2>&1 | head -30
-          echo "---probe-end---"
-      - name: Try set OrgPolicy override (allow allUsers)
+          gcloud services enable orgpolicy.googleapis.com \
+            --project="${{ vars.GCP_PROJECT_ID }}" --quiet
+      - name: Try set OrgPolicy override
         run: |
           set +e
           cat > /tmp/policy.yaml <<EOF
@@ -32,10 +30,10 @@ jobs:
           echo "$OUT"
           echo "exit_code=$EC"
           if [ $EC -ne 0 ]; then
-            echo "$OUT" | head -20 | while IFS= read -r l; do
+            echo "$OUT" | head -25 | while IFS= read -r l; do
               [ -z "$l" ] && continue
               echo "::error::orgpolicy: $l"
             done
             exit $EC
           fi
-          echo "::notice::OrgPolicy override set."
+          echo "::notice::OrgPolicy override set"

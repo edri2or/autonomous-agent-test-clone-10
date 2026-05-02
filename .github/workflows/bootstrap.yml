@@ -580,7 +580,7 @@ jobs:
     name: Register GitHub App (2-click)
     runs-on: ubuntu-latest
     needs: [generate-and-inject-secrets]
-    if: inputs.dry_run == 'false' && vars.GITHUB_ORG != '' && vars.APP_NAME != ''
+    if: inputs.dry_run == 'false' && vars.APP_NAME != ''
 
     steps:
       - name: Checkout
@@ -659,7 +659,7 @@ jobs:
             --region="${GCP_REGION}" \
             --project="${GCP_PROJECT_ID}" \
             --allow-unauthenticated \
-            --set-env-vars="GCP_PROJECT_ID=${GCP_PROJECT_ID},GITHUB_ORG=${{ vars.GITHUB_ORG }},APP_NAME=${{ vars.APP_NAME }},WEBHOOK_URL=${{ vars.WEBHOOK_URL }}" \
+            --set-env-vars="GCP_PROJECT_ID=${GCP_PROJECT_ID},GITHUB_ORG=${{ github.repository_owner }},APP_NAME=${{ vars.APP_NAME }},WEBHOOK_URL=${{ vars.WEBHOOK_URL }}" \
             --quiet
 
           SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \

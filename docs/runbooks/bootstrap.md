@@ -102,7 +102,7 @@ See [ADR-0012](../adr/0012-github-driven-clone-provisioning.md) for the full des
 
 2. **Dispatch `bootstrap.yml` on this clone repo.** Phase 1 generates n8n secrets (encryption key, bcrypt admin password hash) + provisions the OpenRouter runtime key via Management API + injects all to the clone's GCP Secret Manager. Phase 4 (`github-app-registration`) deploys a temporary Cloud Run receiver and prints a URL to the workflow's Step Summary. The receiver pre-fills the GitHub App Manifest form for one-click submission.
 
-3. **R-07 vendor floor — 2 browser clicks.** Operator visits the URL printed in Phase 4: clicks "Create GitHub App" → clicks "Install" on the resulting page. The Cloud Run receiver auto-injects `github-app-id` + `github-app-private-key` + `github-app-webhook-secret` into the clone's GCP Secret Manager; the workflow polls for up to 10 minutes then tears down the receiver. Operator additionally pastes `installation-id` from GitHub settings as `vars.GITHUB_APP_INSTALLATION_ID`. See [R-07](../risk-register.md#r-07-github-app-cloud-run-bootstrap-receiver) for the lifecycle test.
+3. **R-07 vendor floor — 2 browser clicks.** Operator visits the URL printed in Phase 4: clicks "Create GitHub App" → clicks "Install" on the resulting page. The Cloud Run receiver auto-injects `github-app-id` + `github-app-private-key` + `github-app-webhook-secret` into the clone's GCP Secret Manager; the workflow polls for up to 10 minutes then tears down the receiver. Operator additionally pastes `installation-id` from GitHub settings as `vars.APP_INSTALLATION_ID` (name cannot start with `GITHUB_` — GitHub returns HTTP 422 `"Variable names must not start with GITHUB_."`). See [R-07](../risk-register.md#r-07-github-app-cloud-run-bootstrap-receiver) for the lifecycle test.
 
 4. **R-04 vendor floor — Telegram bot.** Either:
    - **(a) Pre-create per clone (recommended for active clones):** follow §1f below to create the bot via `@BotFather`, then export the token to the clone's GCP Secret Manager as `telegram-bot-token` (kebab-case canon, ADR-0006).
@@ -117,7 +117,7 @@ See [ADR-0012](../adr/0012-github-driven-clone-provisioning.md) for the full des
 ### Success criteria — clone is "activated" when ALL of these hold
 
 - `gcloud secrets list --project=$GCP_PROJECT_ID` includes: `github-app-id`, `github-app-private-key`, `github-app-webhook-secret`, `n8n-encryption-key`, `n8n-admin-password-hash`, `openrouter-runtime-key`.
-- GitHub Variable `GITHUB_APP_INSTALLATION_ID` is set on the clone repo.
+- GitHub Variable `APP_INSTALLATION_ID` is set on the clone repo.
 - `telegram-bot-token` is reachable (either in clone's Secret Manager for L-silo / per-clone bot, or in template-builder's with cross-project read binding for shared use), OR explicitly deferred per step 4(b).
 - `linear-api-key` is reachable per the L-pool / L-silo decision in step 5.
 - A test dispatch of `deploy.yml` on the clone runs to green (Railway service builds, Cloudflare Worker deploys, Telegram notify step succeeds).
@@ -381,7 +381,7 @@ written, it advances and the cleanup step deletes the Cloud Run service.
 1. **Trigger the first deploy** by pushing to `main` — `deploy.yml` runs
    automatically and pushes the agent + n8n services to Railway and the edge
    Worker to Cloudflare.
-2. **Set `GITHUB_APP_INSTALLATION_ID`** as a GitHub Variable (one click in
+2. **Set `APP_INSTALLATION_ID`** as a GitHub Variable (one click in
    Settings → Variables) once the install completes — the install ID is shown
    on the GitHub App settings page after step 3.
 3. **Validate n8n:** `https://YOUR_N8N_URL/healthz` should return

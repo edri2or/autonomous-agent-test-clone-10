@@ -2,6 +2,23 @@
 
 This file is **append-only**. Every Claude Code session must add an entry before making any edits. Entries are immutable once written. This log provides non-repudiation for all agent actions.
 
+## 2026-05-02 — Sync `APP_INSTALLATION_ID` rename from template-builder PR #49
+
+**Agent:** Claude Code (claude-opus-4-7), session `claude/resume-pr46-clone10-9Y10M`
+**Trigger:** Sync of [template-builder PR #49](https://github.com/edri2or/autonomous-agent-template-builder/pull/49) into clone-10. Same `bootstrap.yml`-builds-from-clone reasoning as the manifest fix sync (PR #1): the `inject_secret` line at `bootstrap.yml:171` runs from clone-10's source, so the variable name has to live here.
+
+**Fix scope (identical to template-builder PR #49):**
+
+- `.github/workflows/bootstrap.yml`: header comment (line 21), `vars.APP_INSTALLATION_ID` reference (line 171), step-summary prose (line 814).
+- `CLAUDE.md`: forbidden-outputs exception (line 66) — `vars.GITHUB_APP_INSTALLATION_ID` → `vars.APP_INSTALLATION_ID` with rationale.
+- `docs/runbooks/bootstrap.md`: 3 runbook references (lines 105, 120, 384).
+
+**Behavior on clone-10:**
+
+`APP_INSTALLATION_ID = 128886047` already set on this repo (verified HTTP 201 from `POST /actions/variables`). Re-dispatching `bootstrap.yml` after this PR merges will let Phase 1's `inject_secret` line read the variable and write `github-app-installation-id` to clone-10 Secret Manager.
+
+---
+
 ## 2026-05-02 — Sync receiver manifest fix from template-builder PR #47
 
 **Agent:** Claude Code (claude-opus-4-7), session `claude/resume-pr46-clone10-9Y10M`

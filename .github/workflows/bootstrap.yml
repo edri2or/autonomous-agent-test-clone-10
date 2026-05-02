@@ -18,7 +18,9 @@ name: Bootstrap
 #   GCP_SERVICE_ACCOUNT_EMAIL
 #   GCP_REGION                  (default: us-central1)
 #   GITHUB_APP_ID
-#   GITHUB_APP_INSTALLATION_ID
+#   APP_INSTALLATION_ID         (NOT GITHUB_APP_INSTALLATION_ID — GitHub
+#                               Variables forbid the GITHUB_* prefix, HTTP 422
+#                               "Variable names must not start with GITHUB_.")
 #   CLOUDFLARE_ACCOUNT_ID
 #   CLOUDFLARE_ZONE_ID
 #   RAILWAY_PROJECT_ID
@@ -168,7 +170,7 @@ jobs:
           inject_secret "cloudflare-account-id"      "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           inject_secret "openrouter-management-key"  "${{ secrets.OPENROUTER_MANAGEMENT_KEY }}"
           inject_secret "github-app-id"              "${{ vars.GITHUB_APP_ID }}"
-          inject_secret "github-app-installation-id" "${{ vars.GITHUB_APP_INSTALLATION_ID }}"
+          inject_secret "github-app-installation-id" "${{ vars.APP_INSTALLATION_ID }}"
           inject_secret "railway-api-token"          "${{ secrets.RAILWAY_API_TOKEN }}"
 
           inject_secret "github-app-private-key" "${{ secrets.GITHUB_APP_PRIVATE_KEY }}"
@@ -811,4 +813,4 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Remaining human-only steps (if not done)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Telegram @BotFather /newbot (impossible to automate)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Set GITHUB_APP_INSTALLATION_ID variable after installing the app" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Set APP_INSTALLATION_ID variable after installing the app (the name cannot start with GITHUB_ per GH policy)" >> "$GITHUB_STEP_SUMMARY"

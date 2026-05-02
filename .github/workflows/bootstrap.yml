@@ -698,6 +698,14 @@ jobs:
             --update-env-vars="REDIRECT_URL=${SERVICE_URL}/callback" \
             --quiet
 
+          gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+            --platform=managed \
+            --region="${GCP_REGION}" \
+            --project="${GCP_PROJECT_ID}" \
+            --member=allUsers \
+            --role=roles/run.invoker \
+            --quiet
+
       - name: Probe health endpoint
         if: steps.check-secrets.outputs.exists == 'false'
         run: |

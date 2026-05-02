@@ -701,19 +701,22 @@ jobs:
       - name: Probe health endpoint
         if: steps.check-secrets.outputs.exists == 'false'
         run: |
-          echo "Waiting for receiver to become healthy..."
-          for i in $(seq 1 12); do
-            if curl -sf "${SERVICE_URL}/health" -o /dev/null 2>/dev/null; then
-              echo "✅ Receiver healthy."
-              break
+          echo "Waiting for receiver to become healthy at ${SERVICE_URL}/health"
+          LAST_HTTP=""
+          LAST_BODY=""
+          for i in $(seq 1 24); do
+            RESP=$(curl -sS -m 8 -o /tmp/probe.body -w "%{http_code}" "${SERVICE_URL}/health" 2>&1)
+            LAST_HTTP="$RESP"
+            LAST_BODY=$(head -c 200 /tmp/probe.body 2>/dev/null)
+            if [ "$RESP" = "200" ]; then
+              echo "✅ Receiver healthy after ${i} attempt(s). body=${LAST_BODY}"
+              exit 0
             fi
-            if [ "${i}" -eq 12 ]; then
-              echo "❌ Receiver failed health check after 60s."
-              exit 1
-            fi
-            echo "  Attempt ${i}/12 — not ready yet, waiting 5s..."
+            echo "  Attempt ${i}/24 — HTTP=${RESP} body=${LAST_BODY:0:80}"
             sleep 5
           done
+          echo "::error::Receiver health check failed after 120s — last HTTP=${LAST_HTTP} body=${LAST_BODY}"
+          exit 1
 
       - name: Print operator instruction
         if: steps.check-secrets.outputs.exists == 'false'

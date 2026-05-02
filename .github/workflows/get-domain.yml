@@ -1,0 +1,56 @@
+name: Get Railway service domain
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  domain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account:            ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - uses: google-github-actions/get-secretmanager-secrets@v2
+        id: ids
+        with:
+          secrets: |-
+            project_id:${{ vars.GCP_PROJECT_ID }}/railway-project-id
+            env_id:${{ vars.GCP_PROJECT_ID }}/railway-environment-id
+            agent_svc_id:${{ vars.GCP_PROJECT_ID }}/railway-agent-service-id
+            n8n_svc_id:${{ vars.GCP_PROJECT_ID }}/railway-n8n-service-id
+      - name: Query Railway service info
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          PID: ${{ steps.ids.outputs.project_id }}
+          EID: ${{ steps.ids.outputs.env_id }}
+          AGENT: ${{ steps.ids.outputs.agent_svc_id }}
+          N8N: ${{ steps.ids.outputs.n8n_svc_id }}
+        run: |
+          set -euo pipefail
+          query_service() {
+            local SVC=$1 LABEL=$2
+            local Q='query Q($projectId: String!) { project(id: $projectId) { name services { edges { node { id name serviceInstances { edges { node { id environmentId domains { customDomains { domain } serviceDomains { domain } } } } } } } } } }'
+            local PAYLOAD
+            PAYLOAD=$(jq -n --arg q "$Q" --arg pid "$PID" '{query: $q, variables: {projectId: $pid}}')
+            local RESP
+            RESP=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -H "User-Agent: get-domain-probe/1.0" \
+              -d "$PAYLOAD")
+            echo "::group::$LABEL ($SVC) raw"
+            echo "$RESP" | jq .
+            echo "::endgroup::"
+          }
+          query_service "$AGENT" agent
+          # one query is enough since project lists all services
+          {
+            echo "## Railway service domains"
+            echo ""
+            echo '```json'
+            echo "$RESP" 2>/dev/null || echo "see logs above"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

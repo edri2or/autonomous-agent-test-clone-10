@@ -12,28 +12,46 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account:            ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Enable OrgPolicy API
-        run: |
-          gcloud services enable orgpolicy.googleapis.com \
-            --project="${{ vars.GCP_PROJECT_ID }}" --quiet
-      - name: Try set OrgPolicy override
+      - name: Enable OrgPolicy API + wait for propagation
         run: |
           set +e
+          OUT=$(gcloud services enable orgpolicy.googleapis.com \
+            --project="${{ vars.GCP_PROJECT_ID }}" 2>&1)
+          EC=$?
+          echo "$OUT"
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | head -10 | while IFS= read -r l; do echo "::error::svc-enable: $l"; done
+            exit $EC
+          fi
+          echo "Sleeping 90s for API propagation..."
+          sleep 90
+      - name: Probe + set OrgPolicy override
+        run: |
+          set +e
+          # First, just probe — inheritance of org policy
+          gcloud org-policies describe iam.allowedPolicyMemberDomains \
+            --project="${{ vars.GCP_PROJECT_ID }}" --effective 2>&1 | head -20
+          echo "---probe-end---"
           cat > /tmp/policy.yaml <<EOF
           name: projects/${{ vars.GCP_PROJECT_ID }}/policies/iam.allowedPolicyMemberDomains
           spec:
             rules:
               - allowAll: true
           EOF
-          OUT=$(gcloud org-policies set-policy /tmp/policy.yaml --project="${{ vars.GCP_PROJECT_ID }}" 2>&1)
-          EC=$?
-          echo "$OUT"
-          echo "exit_code=$EC"
-          if [ $EC -ne 0 ]; then
-            echo "$OUT" | head -25 | while IFS= read -r l; do
-              [ -z "$l" ] && continue
-              echo "::error::orgpolicy: $l"
-            done
-            exit $EC
-          fi
-          echo "::notice::OrgPolicy override set"
+          for i in 1 2 3; do
+            OUT=$(gcloud org-policies set-policy /tmp/policy.yaml --project="${{ vars.GCP_PROJECT_ID }}" 2>&1)
+            EC=$?
+            echo "Attempt $i: exit=$EC"
+            echo "$OUT" | head -25
+            if [ $EC -eq 0 ]; then
+              echo "::notice::OrgPolicy override set on attempt $i"
+              exit 0
+            fi
+            sleep 30
+          done
+          # All retries failed — emit annotations
+          echo "$OUT" | head -25 | while IFS= read -r l; do
+            [ -z "$l" ] && continue
+            echo "::error::orgpolicy: $l"
+          done
+          exit 1

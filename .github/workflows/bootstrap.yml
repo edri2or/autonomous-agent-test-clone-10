@@ -606,7 +606,7 @@ jobs:
       - name: Check if GitHub App secrets already exist
         id: check-secrets
         run: |
-          if gcloud secrets describe github-app-id --project="${GCP_PROJECT_ID}" &>/dev/null 2>&1; then
+          if gcloud secrets versions access latest --secret=github-app-id --project="${GCP_PROJECT_ID}" &>/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "✅ GitHub App secrets already present — skipping registration."
           else

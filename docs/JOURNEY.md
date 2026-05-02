@@ -2,6 +2,23 @@
 
 This file is **append-only**. Every Claude Code session must add an entry before making any edits. Entries are immutable once written. This log provides non-repudiation for all agent actions.
 
+## 2026-05-02 — Sync receiver manifest fix from template-builder PR #47
+
+**Agent:** Claude Code (claude-opus-4-7), session `claude/resume-pr46-clone10-9Y10M`
+**Trigger:** Phase 4 v11 (run [`25249207559`](https://github.com/edri2or/autonomous-agent-test-clone-10/actions/runs/25249207559)) deployed the Cloud Run receiver, but the operator's first browser click hit `github.com/organizations/edri2or/settings/apps/new` and GitHub's manifest validator returned **Invalid GitHub App configuration** with two errors: `Default events unsupported: installation` + `Default events are not supported by permissions: installation`. The 10-min secret-poll timed out and the receiver was torn down (verified via `actions/runs/.../jobs` API: `Tear down Cloud Run receiver: success`, `if: always() && check-secrets.outputs.exists == 'false'`).
+
+**Root cause:** `src/bootstrap-receiver/main.py:133` listed `"installation"` in `default_events`. `installation/*` are App-lifecycle events delivered automatically to every GitHub App regardless of subscription — they are not valid in `default_events` and there is no corresponding permission key.
+
+**Fix:** sync of [template-builder PR #47](https://github.com/edri2or/autonomous-agent-template-builder/pull/47) (already merged). 1-line change + 5-line guard comment quoting the exact GitHub error text.
+
+**Why a separate sync to this repo:** `bootstrap.yml` builds the Cloud Run receiver image from this repo's source, so the fix has to live on clone-10's own main for the next Phase 4 v12 dispatch to render a valid manifest.
+
+**Behavior unchanged at runtime** — installation lifecycle events still fire (they are auto-delivered, not opt-in via `default_events`).
+
+**Next step:** dispatch `bootstrap.yml` after this PR merges. Operator's 2 clicks should now land secrets within the 10-min poll window. Closing entry will record run ID + secret-write confirmations + R-04/R-06/R-08/R-09 real-runtime status.
+
+---
+
 ## 2026-05-01 — Path D simplify pass: gcloud filter syntax fix + de-duplication
 
 **Agent:** Claude Code (claude-opus-4-7), session `claude/path-d-simplify-fixes`

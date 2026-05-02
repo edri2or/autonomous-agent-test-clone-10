@@ -130,7 +130,12 @@ def manifest_form_html() -> str:
             "secrets":       "write",
             "metadata":      "read",
         },
-        "default_events": ["push", "pull_request", "installation"],
+        # NOTE: do NOT list "installation" here. installation/* are App-lifecycle
+        # events delivered automatically to every GitHub App regardless of
+        # subscription, and GitHub's manifest validator rejects the App outright
+        # ("Default events unsupported: installation" + "Default events are not
+        # supported by permissions: installation") if it appears in this list.
+        "default_events": ["push", "pull_request"],
         "public": False,
     }
     manifest_json = json.dumps(manifest)

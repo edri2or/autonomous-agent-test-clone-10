@@ -647,6 +647,17 @@ jobs:
           fi
           echo "✅ WEBHOOK_URL set."
 
+      - name: Grant runtime SA actAs on itself (Cloud Run deploy requirement)
+        if: steps.check-secrets.outputs.exists == 'false'
+        env:
+          SA_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
+            --member="serviceAccount:${SA_EMAIL}" \
+            --role="roles/iam.serviceAccountUser" \
+            --project="${GCP_PROJECT_ID}" \
+            --quiet
+
       - name: Deploy Cloud Run receiver (no redirect URL yet)
         id: deploy
         if: steps.check-secrets.outputs.exists == 'false'

@@ -742,6 +742,7 @@ jobs:
       - name: Print operator instruction
         if: steps.check-secrets.outputs.exists == 'false'
         run: |
+          echo "::notice::Operator URL — open in browser to register GitHub App: ${SERVICE_URL}"
           echo "## GitHub App Registration — Human Action Required" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Open this URL in your browser** (you must be a GitHub org admin):" >> "$GITHUB_STEP_SUMMARY"

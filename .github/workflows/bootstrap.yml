@@ -318,17 +318,24 @@ jobs:
       - name: Output WIF provider name
         if: inputs.dry_run == 'false'
         run: |
-          echo "## Terraform Outputs" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Set these as GitHub repository variables:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          terraform -chdir=terraform output -json | python3 - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
-          import json, sys
-          outputs = json.load(sys.stdin)
-          for k, v in outputs.items():
-              if isinstance(v.get('value'), str):
-                  print(f'- `{k}` = `{v["value"]}`')
-          PYEOF
+          set +e
+          terraform -chdir=terraform output -json > /tmp/tf_outputs.json 2>/tmp/tf_outputs.err
+          EC=$?
+          if [ "$EC" -ne 0 ]; then
+            echo "::warning::terraform output -json failed (exit $EC) — Variables remain as set by grant-autonomy.sh"
+            sed -n '1,10p' /tmp/tf_outputs.err | while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              echo "::warning::tf output stderr: ${line}"
+            done
+            exit 0
+          fi
+          {
+            echo "## Terraform Outputs"
+            echo ""
+            echo "Set these as GitHub repository variables:"
+            echo ""
+            jq -r 'to_entries[] | select(.value.value | type == "string") | "- `\(.key)` = `\(.value.value)`"' /tmp/tf_outputs.json
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Auto-update GitHub variables and remove SA key
         if: inputs.dry_run == 'false'

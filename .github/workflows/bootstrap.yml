@@ -685,20 +685,33 @@ jobs:
           fi
           set -e
 
+          run_diag() {
+            local LABEL="$1"; shift
+            "$@" 2>&1 | tee /tmp/gcloud_step.log
+            local EC=${PIPESTATUS[0]}
+            if [ "$EC" -ne 0 ]; then
+              tail -25 /tmp/gcloud_step.log | sed 's/\x1b\[[0-9;]*m//g' | while IFS= read -r line; do
+                [ -z "$line" ] && continue
+                clean="${line//$'\r'/}"
+                echo "::error::${LABEL}: ${clean:0:300}"
+              done
+              exit "$EC"
+            fi
+          }
+
           SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \
             --platform=managed --region="${GCP_REGION}" --project="${GCP_PROJECT_ID}" \
             --format='value(status.url)')"
           echo "SERVICE_URL=${SERVICE_URL}" >> "$GITHUB_ENV"
 
-          # Re-deploy with the now-known callback URL
-          gcloud run services update "${SERVICE_NAME}" \
+          run_diag "services-update-redirect" gcloud run services update "${SERVICE_NAME}" \
             --platform=managed \
             --region="${GCP_REGION}" \
             --project="${GCP_PROJECT_ID}" \
             --update-env-vars="REDIRECT_URL=${SERVICE_URL}/callback" \
             --quiet
 
-          gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+          run_diag "add-iam-policy-binding" gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
             --platform=managed \
             --region="${GCP_REGION}" \
             --project="${GCP_PROJECT_ID}" \

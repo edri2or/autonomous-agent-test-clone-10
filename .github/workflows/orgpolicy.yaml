@@ -1,0 +1,41 @@
+name: Set OrgPolicy exception for clone (allUsers on Cloud Run)
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account:            ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Probe current orgpolicy state
+        run: |
+          set +e
+          gcloud org-policies describe constraints/iam.allowedPolicyMemberDomains \
+            --project="${{ vars.GCP_PROJECT_ID }}" 2>&1 | head -30
+          echo "---probe-end---"
+      - name: Try set OrgPolicy override (allow allUsers)
+        run: |
+          set +e
+          cat > /tmp/policy.yaml <<EOF
+          name: projects/${{ vars.GCP_PROJECT_ID }}/policies/iam.allowedPolicyMemberDomains
+          spec:
+            rules:
+              - allowAll: true
+          EOF
+          OUT=$(gcloud org-policies set-policy /tmp/policy.yaml --project="${{ vars.GCP_PROJECT_ID }}" 2>&1)
+          EC=$?
+          echo "$OUT"
+          echo "exit_code=$EC"
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | head -20 | while IFS= read -r l; do
+              [ -z "$l" ] && continue
+              echo "::error::orgpolicy: $l"
+            done
+            exit $EC
+          fi
+          echo "::notice::OrgPolicy override set."

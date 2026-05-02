@@ -9,7 +9,6 @@ name: Bootstrap
 #   TELEGRAM_BOT_TOKEN          from @BotFather
 #   CLOUDFLARE_API_TOKEN        from Cloudflare dashboard (one-time manual)
 #   OPENROUTER_MANAGEMENT_KEY   from OpenRouter settings
-#   GITHUB_APP_PRIVATE_KEY      .pem content (paste full file)
 #   RAILWAY_API_TOKEN           from Railway account settings (account token)
 #
 # GitHub VARIABLES (Settings → Variables → Actions):
@@ -17,8 +16,7 @@ name: Bootstrap
 #   GCP_WORKLOAD_IDENTITY_PROVIDER
 #   GCP_SERVICE_ACCOUNT_EMAIL
 #   GCP_REGION                  (default: us-central1)
-#   GITHUB_APP_ID
-#   APP_INSTALLATION_ID         (note: name cannot start with GITHUB_ — see CLAUDE.md)
+#   APP_INSTALLATION_ID         (name cannot start with GITHUB_ — see CLAUDE.md)
 #   CLOUDFLARE_ACCOUNT_ID
 #   CLOUDFLARE_ZONE_ID
 #   RAILWAY_PROJECT_ID
@@ -139,8 +137,9 @@ jobs:
             local value="$2"
             # Skip empty values: gcloud rejects empty --data-file=- payloads.
             # Empty inputs are expected for bootstrap-managed secrets that
-            # later phases populate (e.g. github-app-* before the
-            # github-app-registration job has run).
+            # later phases populate (e.g. `vars.APP_INSTALLATION_ID` —
+            # empty until the GitHub App is installed and the operator
+            # pastes the install ID).
             if [ -z "${value}" ]; then
               echo "↷ Skipping ${name} (empty value — will be populated by a later phase)"
               return 0
@@ -167,11 +166,12 @@ jobs:
           inject_secret "cloudflare-api-token"       "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           inject_secret "cloudflare-account-id"      "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           inject_secret "openrouter-management-key"  "${{ secrets.OPENROUTER_MANAGEMENT_KEY }}"
-          inject_secret "github-app-id"              "${{ vars.GITHUB_APP_ID }}"
           inject_secret "github-app-installation-id" "${{ vars.APP_INSTALLATION_ID }}"
           inject_secret "railway-api-token"          "${{ secrets.RAILWAY_API_TOKEN }}"
 
-          inject_secret "github-app-private-key" "${{ secrets.GITHUB_APP_PRIVATE_KEY }}"
+          # github-app-id + github-app-private-key + github-app-webhook-secret
+          # are NOT injected here — the Cloud Run receiver writes them directly
+          # to Secret Manager in Phase 4 (github-app-registration job).
 
           echo "✅ All secrets injected into GCP Secret Manager."
 
@@ -193,9 +193,8 @@ jobs:
           echo "  cloudflare-api-token      (from GitHub Secret)"
           echo "  cloudflare-account-id     (from GitHub Variable)"
           echo "  openrouter-management-key (from GitHub Secret)"
-          echo "  github-app-id             (from GitHub Variable)"
-          echo "  github-app-installation-id (from GitHub Variable)"
-          echo "  github-app-private-key    (from GitHub Secret)"
+          echo "  github-app-installation-id (from GitHub Variable APP_INSTALLATION_ID)"
+          echo "  github-app-* trio         (auto-injected by Cloud Run receiver in Phase 4)"
           echo "  railway-api-token         (from GitHub Secret)"
 
   # ─── Phase 2: Terraform apply ──────────────────────────────────────────────

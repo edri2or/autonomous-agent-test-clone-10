@@ -2,6 +2,19 @@
 
 This file is **append-only**. Every Claude Code session must add an entry before making any edits. Entries are immutable once written. This log provides non-repudiation for all agent actions.
 
+## 2026-05-02 — Sync session-start step 5 (current-focus issue ritual) from template-builder PR #53
+
+**Agent:** Claude Code (claude-opus-4-7), session `cheeky-purring-walrus`
+**Trigger:** Sync of [template-builder PR #53](https://github.com/edri2or/autonomous-agent-template-builder/pull/53). Adds the new step 5 to `### Session-start verification ritual (mandatory)` in this clone's `CLAUDE.md` so a fresh agent on this clone reads its own `current-focus` issue and acts on its Next Concrete Step.
+
+**What is NOT synced (intentional):** the new `### End-state goal (ב)` Mission sub-block from template-builder is **not** added here. Per operator decision: clones are *consumers* of (א) self-cloning, not *producers* of (ב) arbitrary-system provisioning. Adding the (ב) framing to a clone would be misleading. Each clone's mission is implicit in its purpose: be an instance of the agent stack provisioned via the template's Path C/D.
+
+**Operator action required to make step 5 functional on this clone:** create a `current-focus` label on this repo and open the first focus issue. Until that's done, step 5 will return zero issues and a fresh agent will halt-and-ask per the ritual's defensive branch (correct fail-safe behavior).
+
+**Files touched:** `CLAUDE.md` (1 added line — step 5), `docs/JOURNEY.md` (this entry).
+
+---
+
 ## 2026-05-02 — Sync dead-code removal from template-builder PR #50
 
 **Agent:** Claude Code (claude-opus-4-7), session `claude/resume-pr46-clone10-9Y10M`

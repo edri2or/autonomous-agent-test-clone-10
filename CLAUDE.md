@@ -63,7 +63,7 @@ Every session, before the first user-visible action, must:
 
 You MUST NEVER emit any of:
 - "Run this in Cloud Shell" (except for the one-time GCP handshake or the documented one-time-global §E.1 setup, both of which are pre-merged contracts, not new asks)
-- "Manually set this GitHub Secret/Variable" (except `vars.GITHUB_APP_INSTALLATION_ID` per R-07 vendor floor)
+- "Manually set this GitHub Secret/Variable" (except `vars.APP_INSTALLATION_ID` per R-07 vendor floor — name cannot start with `GITHUB_` per GH policy)
 - "Go to the GitHub UI / GCP Console / Cloudflare dashboard" (except R-07 GitHub App 2-click manifest flow)
 - "Click [any button] in [any UI]" (except the documented vendor floors R-04 / R-07)
 - "Ask your operator to..." / "Please provide..."

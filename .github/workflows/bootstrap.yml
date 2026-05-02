@@ -653,6 +653,7 @@ jobs:
         run: |
           SERVICE_NAME="github-app-bootstrap-receiver"
 
+          set +e
           gcloud run deploy "${SERVICE_NAME}" \
             --image="${IMAGE}" \
             --platform=managed \
@@ -660,7 +661,17 @@ jobs:
             --project="${GCP_PROJECT_ID}" \
             --allow-unauthenticated \
             --set-env-vars="GCP_PROJECT_ID=${GCP_PROJECT_ID},GITHUB_ORG=${{ github.repository_owner }},APP_NAME=${{ vars.APP_NAME }},WEBHOOK_URL=${{ vars.WEBHOOK_URL }}" \
-            --quiet
+            --quiet 2>&1 | tee /tmp/run_deploy.log
+          EC=${PIPESTATUS[0]}
+          if [ "$EC" -ne 0 ]; then
+            tail -40 /tmp/run_deploy.log | sed 's/\x1b\[[0-9;]*m//g' | while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              clean="${line//$'\r'/}"
+              echo "::error::cloud-run-deploy: ${clean:0:300}"
+            done
+            exit "$EC"
+          fi
+          set -e
 
           SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \
             --platform=managed --region="${GCP_REGION}" --project="${GCP_PROJECT_ID}" \

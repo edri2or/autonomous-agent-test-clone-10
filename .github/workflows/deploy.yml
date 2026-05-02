@@ -54,20 +54,41 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
+      - name: Fetch Railway IDs from GCP Secret Manager
+        id: rw-ids
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            project_id:${{ vars.GCP_PROJECT_ID }}/railway-project-id
+            env_id:${{ vars.GCP_PROJECT_ID }}/railway-environment-id
+            svc_id:${{ vars.GCP_PROJECT_ID }}/railway-agent-service-id
 
-      - name: Deploy to Railway
-        run: railway up --detach
+      - name: Trigger Railway redeploy via GraphQL
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-
-      - name: Verify deployment health
+          PROJECT_ID: ${{ steps.rw-ids.outputs.project_id }}
+          ENV_ID: ${{ steps.rw-ids.outputs.env_id }}
+          SVC_ID: ${{ steps.rw-ids.outputs.svc_id }}
         run: |
-          sleep 10
-          railway status
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          set -euo pipefail
+          PAYLOAD=$(jq -n \
+            --arg svc "$SVC_ID" \
+            --arg env "$ENV_ID" \
+            '{query: "mutation Redeploy($svc: String!, $env: String!) { serviceInstanceRedeploy(serviceId: $svc, environmentId: $env) }", variables: {svc: $svc, env: $env}}')
+          RESP=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -H "User-Agent: autonomous-agent-template-builder/deploy.yml" \
+            -d "$PAYLOAD")
+          echo "::group::Railway response"
+          echo "$RESP"
+          echo "::endgroup::"
+          if echo "$RESP" | jq -e '.errors' >/dev/null 2>&1; then
+            echo "$RESP" | jq -r '.errors[] | "::error::Railway: \(.message)"'
+            exit 1
+          fi
+          echo "::notice::Redeploy triggered for service $SVC_ID in environment $ENV_ID (project $PROJECT_ID)"
 
   deploy-cloudflare:
     name: Deploy to Cloudflare Workers
